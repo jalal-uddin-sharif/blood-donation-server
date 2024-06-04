@@ -30,14 +30,22 @@ async function run() {
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
     const redLoveUserCollection = client.db("RedLove").collection("User")
+    const redLoveRegisteredDonation = client.db("RedLove").collection("createdDonation")
 
 
-
+//add user from registration page
     app.post("/all-users", async (req, res)=>{
         const UserData = req.body;
         console.log(UserData);
         const result = await redLoveUserCollection.insertOne(UserData)
         res.send(result);
+    })
+
+    //create donation request
+    app.post("/new-donation-request", async (req, res) =>{
+      const registeredDonation = req.body;
+      const result = await redLoveRegisteredDonation.insertOne(registeredDonation)
+      res.send(result)
     })
   } finally {
     // Ensures that the client will close when you finish/error
