@@ -10,7 +10,8 @@ const Password = process.env.DATABASE_ACCESS_PASSWORD
 
 app.use(express.json());
 app.use(cors({
-origin: ["http://localhost:5173"]
+origin: ["http://localhost:5173"],
+methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
 }))
 
 const uri = `mongodb+srv://${Username}:${Password}@cluster0.zukg64l.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -24,10 +25,10 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
     const redLoveUserCollection = client.db("RedLove").collection("User")
     const redLoveRegisteredDonation = client.db("RedLove").collection("createdDonation")
