@@ -48,6 +48,22 @@ async function run() {
       const result = await redLoveRegisteredDonation.insertOne(registeredDonation)
       res.send(result)
     })
+
+    //get donation requests
+    app.get("/my-donation-request/:email", async (req, res)=>{
+      const email = req.params.email;
+      console.log(email);
+      const result = await redLoveRegisteredDonation.find({requesterEmail: email}).toArray()
+      res.send(result);
+    })
+
+    //get recent requests
+    app.get("/my-recent-donation/:email", async (req, res)=>{
+      const email = req.params.email;
+      console.log(email);
+      const result = await redLoveRegisteredDonation.find({requesterEmail: email}).sort({donationDates: -1, donationTimes: 1}).limit(3).toArray()
+      res.send(result);
+    })
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
