@@ -60,9 +60,14 @@ async function run() {
     //get recent requests
     app.get("/my-recent-donation/:email", async (req, res)=>{
       const email = req.params.email;
-      console.log(email);
       const result = await redLoveRegisteredDonation.find({requesterEmail: email}).sort({donationDates: -1, donationTimes: 1}).limit(3).toArray()
       res.send(result);
+    })
+
+    //get all users for admin only
+    app.get("/all-users", async (req, res) =>{
+      const result = await redLoveUserCollection.find().toArray()
+      res.send(result)
     })
   } finally {
     // Ensures that the client will close when you finish/error
