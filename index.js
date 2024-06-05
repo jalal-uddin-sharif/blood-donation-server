@@ -95,6 +95,19 @@ async function run() {
       res.send({success: true, result})
     });
 
+     //update user status
+     app.patch("/update-user-status", async (req, res) => {
+      const email = req.query.email;
+      const newStatus = req.body.status;
+      console.log(email, newStatus);
+
+      const result = await redLoveUserCollection.findOneAndUpdate(
+        { Email: email },
+        { $set: {  status: newStatus }},
+        {returnDocument: "after"}
+      );
+      res.send({success: true, result})
+    });
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
