@@ -108,6 +108,15 @@ async function run() {
       );
       res.send({success: true, result})
     });
+
+
+    //get user by email
+    app.get("/get-user/:email", async(req, res)=>{
+      const email = req.params.email;
+      console.log(email);
+      const result = await redLoveUserCollection.findOne({Email: email})
+      res.send(result)
+    })
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
