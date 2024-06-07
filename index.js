@@ -117,6 +117,26 @@ async function run() {
       const result = await redLoveUserCollection.findOne({Email: email})
       res.send(result)
     })
+
+    //update user profile
+    app.put("/update-user-profile/:email", async(req, res) =>{
+      const userData = req.body;
+      const email = {Email : req.params.email}
+      const options = {upsert: true}
+      const updateBlog ={
+        $set:{
+          ...userData
+        }
+      }
+      const result = await redLoveUserCollection.updateOne(email, updateBlog, options)
+      res.send(result)
+    })
+
+    //get all blood donation request
+    app.get("/all-blood-donation-request", async(req, res)=>{
+      const result = await redLoveRegisteredDonation.find().toArray()
+      res.send(result)
+    })
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
