@@ -3,7 +3,7 @@ const cors = require("cors");
 const app = express();
 const port = process.env.PORT || 3001;
 require("dotenv").config();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const Username = process.env.DATABASE_ACCESS_USERNAME;
 const Password = process.env.DATABASE_ACCESS_PASSWORD;
@@ -40,7 +40,7 @@ async function run() {
     //add user from registration page
     app.post("/all-users", async (req, res) => {
       const UserData = req.body;
-      console.log(UserData);
+
       const result = await redLoveUserCollection.insertOne(UserData);
       res.send(result);
     });
@@ -57,7 +57,7 @@ async function run() {
     //get donation requests
     app.get("/my-donation-request/:email", async (req, res) => {
       const email = req.params.email;
-      console.log(email);
+
       const result = await redLoveRegisteredDonation
         .find({ requesterEmail: email })
         .toArray();
@@ -85,58 +85,79 @@ async function run() {
     app.patch("/update-user-role", async (req, res) => {
       const email = req.query.email;
       const newRole = req.body.role;
-      console.log(email, newRole);
 
       const result = await redLoveUserCollection.findOneAndUpdate(
         { Email: email },
-        { $set: {  Role: newRole }},
-        {returnDocument: "after"}
+        { $set: { Role: newRole } },
+        { returnDocument: "after" }
       );
-      res.send({success: true, result})
+      res.send({ success: true, result });
     });
 
-     //update user status
-     app.patch("/update-user-status", async (req, res) => {
+    //update user status
+    app.patch("/update-user-status", async (req, res) => {
       const email = req.query.email;
       const newStatus = req.body.status;
       console.log(email, newStatus);
 
       const result = await redLoveUserCollection.findOneAndUpdate(
         { Email: email },
-        { $set: {  status: newStatus }},
-        {returnDocument: "after"}
+        { $set: { status: newStatus } },
+        { returnDocument: "after" }
       );
-      res.send({success: true, result})
+      res.send({ success: true, result });
+    });
+
+    //get user by email
+    app.get("/get-user/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await redLoveUserCollection.findOne({ Email: email });
+      res.send(result);
+    });
+
+    //update user profile
+    app.put("/update-user-profile/:email", async (req, res) => {
+      const userData = req.body;
+      const email = { Email: req.params.email };
+      const options = { upsert: true };
+      const updateBlog = {
+        $set: {
+          ...userData,
+        },
+      };
+      const result = await redLoveUserCollection.updateOne(
+        email,
+        updateBlog,
+        options
+      );
+      res.send(result);
+    });
+
+    //get all blood donation request
+    app.get("/all-blood-donation-request", async (req, res) => {
+      const result = await redLoveRegisteredDonation.find().toArray();
+      res.send(result);
+    });
+
+    //update donation request
+    app.put("/update-donation-request/:id", async (req, res) => {
+      const newReq = req.body;
+
+      const result = await redLoveRegisteredDonation.findOneAndUpdate(
+        { _id: new ObjectId(req.params.id) },
+        { $set: { ...newReq } },
+        { returnDocument: "after" }
+      );
+      res.send({ success: true, result });
     });
 
 
-    //get user by email
-    app.get("/get-user/:email", async(req, res)=>{
-      const email = req.params.email;
-      console.log(email);
-      const result = await redLoveUserCollection.findOne({Email: email})
-      res.send(result)
-    })
-
-    //update user profile
-    app.put("/update-user-profile/:email", async(req, res) =>{
-      const userData = req.body;
-      const email = {Email : req.params.email}
-      const options = {upsert: true}
-      const updateBlog ={
-        $set:{
-          ...userData
-        }
-      }
-      const result = await redLoveUserCollection.updateOne(email, updateBlog, options)
-      res.send(result)
-    })
-
-    //get all blood donation request
-    app.get("/all-blood-donation-request", async(req, res)=>{
-      const result = await redLoveRegisteredDonation.find().toArray()
-      res.send(result)
-    })
+    //get request data by id
+    app.get("/get-request-data/:id", async (req, res) => {
+      console.log(req.params.id);
+      const result = await redLoveRegisteredDonation.findOne({_id: new ObjectId(req.params.id)});
+      res.send(result);
+    });
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
