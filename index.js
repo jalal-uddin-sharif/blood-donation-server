@@ -111,7 +111,7 @@ async function run() {
 
     //get user by email
     app.get("/get-user/:email", async (req, res) => {
-      const email = req.params.email;
+      const email = req.params.email.toLocaleLowerCase();
       const result = await redLoveUserCollection.findOne({ Email: email });
       res.send(result);
     });
