@@ -11,7 +11,7 @@ const Password = process.env.DATABASE_ACCESS_PASSWORD;
 app.use(express.json());
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: ["http://localhost:5174"],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   })
 );
@@ -197,7 +197,26 @@ async function run() {
       const result = await redLoveBlogCollection.deleteOne({_id: new ObjectId(req.params.id)})
       res.send(result)
     })
-
+//update donation status
+app.patch("/update-donation-status/:id", async(req, res)=>{
+  const id = req.params.id
+  const donationStatus = req.query.status
+  const result = await redLoveRegisteredDonation.findOneAndUpdate(
+    { _id: new ObjectId(id) },
+    { $set: { donationStatus: donationStatus } },
+    { returnDocument: "after" }
+  )
+  res.send(result)
+})
+//search donors
+app.get("/search-donors", async(req, res)=>{
+  const {bloodGroup, district, upazila} =req.query
+  const query = {
+    bloodGroup, district , upazila
+  }
+  const result = await redLoveRegisteredDonation.find(query).toArray()
+  res.send(result)
+})
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
