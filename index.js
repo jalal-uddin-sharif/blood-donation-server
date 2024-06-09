@@ -217,11 +217,21 @@ app.get("/search-donors", async(req, res)=>{
   const result = await redLoveRegisteredDonation.find(query).toArray()
   res.send(result)
 })
+
+//get pending donation data
+app.get("/pending-donation-data", async(req, res)=>{
+  const result = await redLoveRegisteredDonation.find({
+    donationStatus: "pending"}).toArray()
+    res.send(result)
+})
+
+
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
   }
 }
+
 run().catch(console.dir);
 
 app.get("/", (req, res) => {
