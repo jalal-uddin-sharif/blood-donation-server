@@ -183,8 +183,21 @@ async function run() {
     app.patch("/update-blog-status/:id", async(req, res)=>{
      const id = req.params.id
      const status = req.query.status
+     const result = await redLoveBlogCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      { $set: { status: status } },
+      { returnDocument: "after" }
+     )
     //  console.log(id, status);
+    res.send(result);
     })
+
+    //delete blog
+    app.delete("/delete-blog/:id", async(req, res)=>{
+      const result = await redLoveBlogCollection.deleteOne({_id: new ObjectId(req.params.id)})
+      res.send(result)
+    })
+
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
