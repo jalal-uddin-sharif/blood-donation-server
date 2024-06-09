@@ -33,6 +33,7 @@ async function run() {
     // console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
     const redLoveUserCollection = client.db("RedLove").collection("User");
+    const redLoveBlogCollection = client.db("RedLove").collection("BlogsCollection");
     const redLoveRegisteredDonation = client
       .db("RedLove")
       .collection("createdDonation");
@@ -158,6 +159,32 @@ async function run() {
       const result = await redLoveRegisteredDonation.findOne({_id: new ObjectId(req.params.id)});
       res.send(result);
     });
+
+    //create blog
+    app.post("/create-new-blog", async(req, res)=>{
+      const blogData = req.body
+      const result = await redLoveBlogCollection.insertOne(blogData)
+      res.send(result)
+    })
+
+    //get all blogs
+    app.get("/all-blogs", async(req, res)=>{
+      const status = req.query.status
+      const query = {}
+      if(status){
+        query.status = status
+      }
+      console.log(status);
+      const result = await redLoveBlogCollection.find(query).toArray()
+      res.send(result)
+    })
+
+    //update blog status
+    app.patch("/update-blog-status/:id", async(req, res)=>{
+     const id = req.params.id
+     const status = req.query.status
+    //  console.log(id, status);
+    })
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
