@@ -19,7 +19,6 @@ app.use(
 
 //middleware
 const verifyToken = (req, res, next) => {
-  console.log(req.headers);
   if (!req.headers.authorization)
     return res.status(401).send({ message: "unauthorized access" });
   const token = req.headers.authorization.split(" ")[1];
@@ -127,7 +126,6 @@ const verifyAdminVolunteer = (req, res, next) => {
 
     //get recent requests
     app.get("/my-recent-donation/:email", verifyToken, async (req, res) => {
-      console.log(req.headers);
       const email = req.params.email;
       const result = await redLoveRegisteredDonation
         .find({ requesterEmail: email })
@@ -228,7 +226,7 @@ const verifyAdminVolunteer = (req, res, next) => {
     });
 
     //get all blogs
-    app.get("/all-blogs", async (req, res) => {
+    app.get("/all-blogs",verifyAdminVolunteer, async (req, res) => {
       const status = req.query.status;
       const query = {};
       if (status) {
