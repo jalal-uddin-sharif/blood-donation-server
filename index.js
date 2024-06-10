@@ -11,7 +11,7 @@ const Password = process.env.DATABASE_ACCESS_PASSWORD;
 app.use(express.json());
 app.use(
   cors({
-    origin: ["http://localhost:5174"],
+    origin: ["http://localhost:5173"],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   })
 );
@@ -223,6 +223,20 @@ app.get("/pending-donation-data", async(req, res)=>{
   const result = await redLoveRegisteredDonation.find({
     donationStatus: "pending"}).toArray()
     res.send(result)
+})
+
+//view donation details
+app.get("/view-details/:id",async(req, res)=>{
+  console.log(req.params.id);
+  const result = await redLoveRegisteredDonation.findOne({_id: new ObjectId(req.params.id)})
+  res.send(result)
+})
+
+//get all published blogs
+app.get("/blogs", async(req, res)=>{
+  const query = {status: "published"}
+  const result = await redLoveBlogCollection.find(query).toArray()
+  res.send(result)
 })
 
 
