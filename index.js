@@ -1,21 +1,41 @@
 const express = require("express");
 const cors = require("cors");
+require("dotenv").config();
 const app = express();
 const port = process.env.PORT || 3001;
-require("dotenv").config();
 const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const Username = process.env.DATABASE_ACCESS_USERNAME;
 const Password = process.env.DATABASE_ACCESS_PASSWORD;
+const encodedUsername = encodeURIComponent(Username || "");
+const encodedPassword = encodeURIComponent(Password || "");
+const atlasFallbackUri =
+  Username && Password
+    ? `mongodb://${encodedUsername}:${encodedPassword}@ac-mxcrq0r-shard-00-00.zukg64l.mongodb.net:27017,ac-mxcrq0r-shard-00-01.zukg64l.mongodb.net:27017,ac-mxcrq0r-shard-00-02.zukg64l.mongodb.net:27017/?ssl=true&replicaSet=atlas-zsmeja-shard-0&authSource=admin&retryWrites=true&w=majority&appName=Cluster0`
+    : null;
+const mongoUri =
+  process.env.MONGODB_URI || atlasFallbackUri;
+const defaultOrigins = [
+  "https://red-love-donation.web.app",
+  "https://red-love-donation.firebaseapp.com",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+];
+const envOrigins = (process.env.CLIENT_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
+const corsOptions = {
+  origin: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
 
 app.use(express.json());
-app.use(
-  cors({
-    origin: ["https://red-love-donation.web.app", "http://localhost:5173"],
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  })
-);
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 //middleware
 const verifyToken = (req, res, next) => {
@@ -30,16 +50,22 @@ const verifyToken = (req, res, next) => {
 };
 
 
-const uri = `mongodb+srv://${Username}:${Password}@cluster0.zukg64l.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
-const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  },
-});
+const client = mongoUri
+  ? new MongoClient(mongoUri, {
+      serverApi: {
+        version: ServerApiVersion.v1,
+        strict: true,
+        deprecationErrors: true,
+      },
+    })
+  : null;
 async function run() {
   try {
+    if (!client) {
+      throw new Error(
+        "MongoDB environment variables are missing. Set MONGODB_URI or DATABASE_ACCESS_USERNAME and DATABASE_ACCESS_PASSWORD."
+      );
+    }
     // Connect the client to the server	(optional starting in v4.7)
     // await client.connect();
     // Send a ping to confirm a successful connection
@@ -356,6 +382,20 @@ app.get("/", (req, res) => {
   res.send("Server responsed");
 });
 
-app.listen(port, () => {
-  console.log(`surver running on port: ${port}`);
+app.get("/health", (req, res) => {
+  res.send({
+    ok: true,
+    hasJwtSecret: Boolean(process.env.API_SECRET_KEY),
+    hasMongoUri: Boolean(process.env.MONGODB_URI),
+    hasMongoUserPassword: Boolean(Username && Password),
+    allowedOrigins,
+  });
 });
+
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`server running on port: ${port}`);
+  });
+}
+
+module.exports = app;
