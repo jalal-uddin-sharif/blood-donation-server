@@ -37,6 +37,21 @@ app.use(express.json());
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
+const asyncRoute = (handler) => (req, res, next) => {
+  Promise.resolve(handler(req, res, next)).catch(next);
+};
+
+["get", "post", "put", "patch", "delete"].forEach((method) => {
+  const originalMethod = app[method].bind(app);
+  app[method] = (path, ...handlers) =>
+    originalMethod(
+      path,
+      ...handlers.map((handler) =>
+        handler.constructor.name === "AsyncFunction" ? asyncRoute(handler) : handler
+      )
+    );
+});
+
 //middleware
 const verifyToken = (req, res, next) => {
   if (!req.headers.authorization)
@@ -52,6 +67,7 @@ const verifyToken = (req, res, next) => {
 
 const client = mongoUri
   ? new MongoClient(mongoUri, {
+      serverSelectionTimeoutMS: 10000,
       serverApi: {
         version: ServerApiVersion.v1,
         strict: true,
@@ -392,10 +408,18 @@ app.get("/health", (req, res) => {
   });
 });
 
-// if (require.main === module) {
-//   app.listen(port, () => {
-//     console.log(`server running on port: ${port}`);
-//   });
-// }
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).send({
+    message: "Server error",
+    error: err.message,
+  });
+});
+
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`server running on port: ${port}`);
+  });
+}
 
 module.exports = app;
