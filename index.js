@@ -392,10 +392,10 @@ app.get("/health", (req, res) => {
   });
 });
 
-if (require.main === module) {
-  app.listen(port, () => {
-    console.log(`server running on port: ${port}`);
-  });
-}
+// if (require.main === module) {
+//   app.listen(port, () => {
+//     console.log(`server running on port: ${port}`);
+//   });
+// }
 
 module.exports = app;
