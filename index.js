@@ -1,417 +1,544 @@
 const express = require("express");
 const cors = require("cors");
-require("dotenv").config();
-const app = express();
-const port = process.env.PORT || 3001;
 const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+require("dotenv").config();
 
-const Username = process.env.DATABASE_ACCESS_USERNAME;
-const Password = process.env.DATABASE_ACCESS_PASSWORD;
-const encodedUsername = encodeURIComponent(Username || "");
-const encodedPassword = encodeURIComponent(Password || "");
-const atlasFallbackUri =
-  Username && Password
-    ? `mongodb://${encodedUsername}:${encodedPassword}@ac-mxcrq0r-shard-00-00.zukg64l.mongodb.net:27017,ac-mxcrq0r-shard-00-01.zukg64l.mongodb.net:27017,ac-mxcrq0r-shard-00-02.zukg64l.mongodb.net:27017/?ssl=true&replicaSet=atlas-zsmeja-shard-0&authSource=admin&retryWrites=true&w=majority&appName=Cluster0`
-    : null;
-const mongoUri =
-  process.env.MONGODB_URI || atlasFallbackUri;
+const app = express();
+const port = process.env.PORT || 3001;
+const dbName = process.env.DB_NAME || "RedLove";
+const jwtSecret = process.env.API_SECRET_KEY;
+
 const defaultOrigins = [
   "https://red-love-donation.web.app",
   "https://red-love-donation.firebaseapp.com",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
 ];
+
 const envOrigins = (process.env.CLIENT_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
 const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
+
+const buildLegacyMongoUri = () => {
+  const username = process.env.DATABASE_ACCESS_USERNAME;
+  const password = process.env.DATABASE_ACCESS_PASSWORD;
+
+  if (!username || !password) return null;
+
+  const encodedUsername = encodeURIComponent(username);
+  const encodedPassword = encodeURIComponent(password);
+
+  return `mongodb://${encodedUsername}:${encodedPassword}@ac-mxcrq0r-shard-00-00.zukg64l.mongodb.net:27017,ac-mxcrq0r-shard-00-01.zukg64l.mongodb.net:27017,ac-mxcrq0r-shard-00-02.zukg64l.mongodb.net:27017/?ssl=true&replicaSet=atlas-zsmeja-shard-0&authSource=admin&retryWrites=true&w=majority&appName=Cluster0`;
+};
+
+const mongoUri = process.env.MONGODB_URI || buildLegacyMongoUri();
+
 const corsOptions = {
-  origin: true,
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(null, false);
+  },
+  credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 
-app.use(express.json());
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
+app.use(express.json({ limit: "1mb" }));
 
 const asyncRoute = (handler) => (req, res, next) => {
   Promise.resolve(handler(req, res, next)).catch(next);
 };
 
-["get", "post", "put", "patch", "delete"].forEach((method) => {
-  const originalMethod = app[method].bind(app);
-  app[method] = (path, ...handlers) =>
-    originalMethod(
-      path,
-      ...handlers.map((handler) =>
-        handler.constructor.name === "AsyncFunction" ? asyncRoute(handler) : handler
-      )
-    );
-});
-
-//middleware
-const verifyToken = (req, res, next) => {
-  if (!req.headers.authorization)
-    return res.status(401).send({ message: "unauthorized access" });
-  const token = req.headers.authorization.split(" ")[1];
-  jwt.verify(token, process.env.API_SECRET_KEY, (err, decoded) => {
-    if (err) return res.status(401).send({ message: "unauthorized access" });
-    req.decoded = decoded;
-    next();
-  });
+const sendAuthError = (res) => {
+  res.status(401).send({ message: "Unauthorized access" });
 };
 
+const sendForbiddenError = (res) => {
+  res.status(403).send({ message: "forbidden access" });
+};
 
-const client = mongoUri
-  ? new MongoClient(mongoUri, {
+const getBearerToken = (req) => {
+  const authHeader = req.headers.authorization || "";
+  const [scheme, token] = authHeader.split(" ");
+  return scheme === "Bearer" && token ? token : null;
+};
+
+const requireEnv = (value, name) => {
+  if (!value) {
+    const error = new Error(`${name} is not configured`);
+    error.statusCode = 500;
+    throw error;
+  }
+};
+
+const toObjectId = (id) => {
+  if (!ObjectId.isValid(id)) {
+    const error = new Error("Invalid id");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return new ObjectId(id);
+};
+
+let mongoClient;
+let mongoConnectionPromise;
+
+const getMongoClient = async () => {
+  requireEnv(mongoUri, "MONGODB_URI");
+
+  if (!mongoClient) {
+    mongoClient = new MongoClient(mongoUri, {
       serverSelectionTimeoutMS: 10000,
       serverApi: {
         version: ServerApiVersion.v1,
         strict: true,
         deprecationErrors: true,
       },
-    })
-  : null;
-async function run() {
-  try {
-    if (!client) {
-      throw new Error(
-        "MongoDB environment variables are missing. Set MONGODB_URI or DATABASE_ACCESS_USERNAME and DATABASE_ACCESS_PASSWORD."
-      );
-    }
-    // Connect the client to the server	(optional starting in v4.7)
-    // await client.connect();
-    // Send a ping to confirm a successful connection
-    // await client.db("admin").command({ ping: 1 });
-    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
-
-    const redLoveUserCollection = client.db("RedLove").collection("User");
-    const redLoveBlogCollection = client
-      .db("RedLove")
-      .collection("BlogsCollection");
-    const redLoveRegisteredDonation = client
-      .db("RedLove")
-      .collection("createdDonation");
-
-  //verify admin
-const verifyAdmin = (req, res, next) => {
-  if (!req.headers.authorization)
-    return res.status(401).send({ message: "Unauthorized access" });
-  const token = req.headers.authorization.split(" ")[1];
-
-  jwt.verify(token, process.env.API_SECRET_KEY, async(err, decoded) => {
-    if (err) return res.status(401).send({ message: "Unauthorized access" });
-    const user = await redLoveUserCollection.findOne({Email: decoded.email})
-    if(user?.Role === "Admin"){
-      next()
-    } else{
-      return res.status(403).send({ message: "forbidden access" })
-     }
-  });
-};
-
-  //verify admin and volunteer
-const verifyAdminVolunteer = (req, res, next) => {
-  if (!req.headers.authorization)
-    return res.status(401).send({ message: "Unauthorized access" });
-  const token = req.headers.authorization.split(" ")[1];
-
-  jwt.verify(token, process.env.API_SECRET_KEY, async(err, decoded) => {
-    if (err) return res.status(401).send({ message: "Unauthorized access" });
-    const user = await redLoveUserCollection.findOne({Email: decoded.email})
-    if(user?.Role === "Admin" || user?.Role === "Volunteer"){
-      next()
-    } else{
-     return res.status(403).send({ message: "forbidden access" })
-    }
-  });
-};
-
-    //jwt token
-    app.post("/jwt", async (req, res) => {
-      const user = req.body;
-
-      const token = jwt.sign(user, process.env.API_SECRET_KEY, {
-        expiresIn: "365d",
-      });
-      res.send({ token });
     });
-
-    //add user from registration page
-    app.post("/all-users", async (req, res) => {
-      const UserData = req.body;
-      const result = await redLoveUserCollection.insertOne(UserData);
-      res.send(result);
-    });
-
-    //create donation request
-    app.post("/new-donation-request", verifyToken, async (req, res) => {
-      const registeredDonation = req.body;
-      const result = await redLoveRegisteredDonation.insertOne(
-        registeredDonation
-      );
-      res.send(result);
-    });
-
-    //get donation requests
-    app.get("/my-donation-request/:email", verifyToken, async (req, res) => {
-      const email = req.params.email;
-
-      const result = await redLoveRegisteredDonation
-        .find({ requesterEmail: email })
-        .toArray();
-      res.send(result);
-    });
-
-    //get recent requests
-    app.get("/my-recent-donation/:email", verifyToken, async (req, res) => {
-      const email = req.params.email;
-      const result = await redLoveRegisteredDonation
-        .find({ requesterEmail: email })
-        .sort({ donationDates: -1, donationTimes: 1 })
-        .limit(3)
-        .toArray();
-      res.send(result);
-    });
-
-    //get all users for admin only
-    app.get("/all-users", verifyAdmin, async (req, res) => {
-      const result = await redLoveUserCollection.find().toArray();
-      res.send(result);
-    });
-
-    //change user role
-    app.patch("/update-user-role", async (req, res) => {
-      const email = req.query.email;
-      const newRole = req.body.role;
-
-      const result = await redLoveUserCollection.findOneAndUpdate(
-        { Email: email },
-        { $set: { Role: newRole } },
-        { returnDocument: "after" }
-      );
-      res.send({ success: true, result });
-    });
-
-    //update user status
-    app.patch("/update-user-status", async (req, res) => {
-      const email = req.query.email;
-      const newStatus = req.body.status;
-
-      const result = await redLoveUserCollection.findOneAndUpdate(
-        { Email: email },
-        { $set: { status: newStatus } },
-        { returnDocument: "after" }
-      );
-      res.send({ success: true, result });
-    });
-
-    //get user by email
-    app.get("/get-user/:email", async (req, res) => {
-      const email = req.params.email.toLocaleLowerCase();
-      const result = await redLoveUserCollection.findOne({ Email: email });
-      res.send(result);
-    });
-
-    //update user profile
-    app.put("/update-user-profile/:email", verifyToken, async (req, res) => {
-      const userData = req.body;
-      const email = { Email: req.params.email };
-      const options = { upsert: true };
-      const updateBlog = {
-        $set: {
-          ...userData,
-        },
-      };
-      const result = await redLoveUserCollection.updateOne(
-        email,
-        updateBlog,
-        options
-      );
-      res.send(result);
-    });
-
-    //get all blood donation request
-    app.get("/all-blood-donation-request", verifyAdminVolunteer, async (req, res) => {
-      const result = await redLoveRegisteredDonation.find().toArray();
-      res.send(result);
-    });
-
-    //update donation request
-    app.put("/update-donation-request/:id", verifyToken, async (req, res) => {
-      const newReq = req.body;
-
-      const result = await redLoveRegisteredDonation.findOneAndUpdate(
-        { _id: new ObjectId(req.params.id) },
-        { $set: { ...newReq } },
-        { returnDocument: "after" }
-      );
-      res.send({ success: true, result });
-    });
-
-    //get request data by id
-    app.get("/get-request-data/:id", verifyToken, async (req, res) => {
-      const result = await redLoveRegisteredDonation.findOne({
-        _id: new ObjectId(req.params.id),
-      });
-      res.send(result);
-    });
-
-    //create blog
-    app.post("/create-new-blog", verifyAdminVolunteer, async (req, res) => {
-      const blogData = req.body;
-      const result = await redLoveBlogCollection.insertOne(blogData);
-      res.send(result);
-    });
-
-    //get all blogs
-    app.get("/all-blogs",verifyAdminVolunteer, async (req, res) => {
-      const status = req.query.status;
-      const query = {};
-      if (status) {
-        query.status = status;
-      }
-      const result = await redLoveBlogCollection.find(query).toArray();
-      res.send(result);
-    });
-
-    //update blog status
-    app.patch("/update-blog-status/:id", verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const status = req.query.status;
-      const result = await redLoveBlogCollection.findOneAndUpdate(
-        { _id: new ObjectId(id) },
-        { $set: { status: status } },
-        { returnDocument: "after" }
-      );
-      res.send(result);
-    });
-
-    //delete blog
-    app.delete("/delete-blog/:id", verifyAdmin, async (req, res) => {
-      const result = await redLoveBlogCollection.deleteOne({
-        _id: new ObjectId(req.params.id),
-      });
-      res.send(result);
-    });
-
-    //update donation status
-    app.patch("/update-donation-status/:id", verifyAdminVolunteer, async (req, res) => {
-      const id = req.params.id;
-      const donationStatus = req.query.status;
-      const result = await redLoveRegisteredDonation.findOneAndUpdate(
-        { _id: new ObjectId(id) },
-        { $set: { donationStatus: donationStatus } },
-        { returnDocument: "after" }
-      );
-      res.send(result);
-    });
-
-    //update donation status by user
-    app.patch("/user-donation-status-update/:id", verifyToken, async (req, res) => {
-      const id = req.params.id;
-      const donationStatus = req.query.status;
-      const result = await redLoveRegisteredDonation.findOneAndUpdate(
-        { _id: new ObjectId(id) },
-        { $set: { donationStatus: donationStatus } },
-        { returnDocument: "after" }
-      );
-      res.send(result);
-    });
-
-    //search donors
-    app.get("/search-donors", async (req, res) => {
-      const { bloodGroup, district, upazila } = req.query;
-      const query = {
-        bloodGroup,
-        district,
-        upazila,
-      };
-      const result = await redLoveRegisteredDonation.find(query).toArray();
-      res.send(result);
-    });
-
-    //get pending donation data
-    app.get("/pending-donation-data", async (req, res) => {
-      const result = await redLoveRegisteredDonation
-        .find({
-          donationStatus: "pending",
-        })
-        .toArray();
-      res.send(result);
-    });
-
-    //view donation details
-    app.get("/view-details/:id", verifyToken, async (req, res) => {
-      const result = await redLoveRegisteredDonation.findOne({
-        _id: new ObjectId(req.params.id),
-      });
-      res.send(result);
-    });
-
-    //get all published blogs
-    app.get("/blogs", async (req, res) => {
-      const query = { status: "published" };
-      const result = await redLoveBlogCollection.find(query).toArray();
-      res.send(result);
-    });
-
-    //get details of blog
-    app.get("/blog-details/:id", async (req, res) => {
-      const result = await redLoveBlogCollection.findOne({
-        _id: new ObjectId(req.params.id),
-      });
-      res.send(result);
-    });
-
-    //update donor information
-    app.patch("/confirm-donation/:id", async (req, res) => {
-      const { donorName, donorEmail, donationStatus } = req.body;
-      const id = req.params.id;
-      const result = await redLoveRegisteredDonation.findOneAndUpdate(
-        { _id: new ObjectId(id) },
-        { $set: { donorName, donorEmail, donationStatus } },
-        { upsert: true, returnOriginal: false }
-      );
-      res.send(result);
-    });
-
-    //delete donation request
-    app.delete("/delete-donation-request/:id", async (req, res) => {
-      const result = await redLoveRegisteredDonation.deleteOne({
-        _id: new ObjectId(req.params.id),
-      });
-      res.send(result);
-    });
-  } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
   }
-}
 
-run().catch(console.dir);
+  if (!mongoConnectionPromise) {
+    mongoConnectionPromise = mongoClient.connect().catch((error) => {
+      mongoConnectionPromise = null;
+      throw error;
+    });
+  }
+
+  await mongoConnectionPromise;
+  return mongoClient;
+};
+
+const getCollections = async () => {
+  const client = await getMongoClient();
+  const db = client.db(dbName);
+
+  return {
+    users: db.collection("User"),
+    blogs: db.collection("BlogsCollection"),
+    donations: db.collection("createdDonation"),
+  };
+};
+
+const verifyToken = (req, res, next) => {
+  try {
+    requireEnv(jwtSecret, "API_SECRET_KEY");
+
+    const token = getBearerToken(req);
+    if (!token) {
+      sendAuthError(res);
+      return;
+    }
+
+    const decoded = jwt.verify(token, jwtSecret);
+    req.decoded = decoded;
+    next();
+  } catch (error) {
+    if (error.name === "JsonWebTokenError" || error.name === "TokenExpiredError") {
+      sendAuthError(res);
+      return;
+    }
+
+    next(error);
+  }
+};
+
+const verifyRole = (roles) =>
+  [
+    verifyToken,
+    asyncRoute(async (req, res, next) => {
+      const { users } = await getCollections();
+      const email = req.decoded?.email?.toLowerCase();
+      const user = await users.findOne({ Email: email });
+
+      if (user && roles.includes(user.Role)) {
+        next();
+        return;
+      }
+
+      sendForbiddenError(res);
+    }),
+  ];
+
+const verifyAdmin = verifyRole(["Admin"]);
+const verifyAdminVolunteer = verifyRole(["Admin", "Volunteer"]);
 
 app.get("/", (req, res) => {
-  res.send("Server responsed");
+  res.send("Server responded");
 });
 
-app.get("/health", (req, res) => {
-  res.send({
-    ok: true,
-    hasJwtSecret: Boolean(process.env.API_SECRET_KEY),
-    hasMongoUri: Boolean(process.env.MONGODB_URI),
-    hasMongoUserPassword: Boolean(Username && Password),
-    allowedOrigins,
-  });
+app.get(
+  "/health",
+  asyncRoute(async (req, res) => {
+    const health = {
+      ok: true,
+      service: "red-love-server",
+      hasJwtSecret: Boolean(jwtSecret),
+      hasMongoUri: Boolean(process.env.MONGODB_URI),
+      hasMongoUserPassword: Boolean(
+        process.env.DATABASE_ACCESS_USERNAME && process.env.DATABASE_ACCESS_PASSWORD
+      ),
+      allowedOrigins,
+    };
+
+    try {
+      const client = await getMongoClient();
+      await client.db("admin").command({ ping: 1 });
+      res.send({ ...health, database: "connected" });
+    } catch (error) {
+      res.status(503).send({
+        ...health,
+        ok: false,
+        database: "error",
+        error: error.message,
+      });
+    }
+  })
+);
+
+app.post(
+  "/jwt",
+  asyncRoute(async (req, res) => {
+    requireEnv(jwtSecret, "API_SECRET_KEY");
+
+    const user = req.body;
+    const token = jwt.sign(user, jwtSecret, { expiresIn: "365d" });
+    res.send({ token });
+  })
+);
+
+app.post(
+  "/all-users",
+  asyncRoute(async (req, res) => {
+    const { users } = await getCollections();
+    const userData = {
+      ...req.body,
+      Email: req.body?.Email?.toLowerCase(),
+    };
+
+    const result = await users.insertOne(userData);
+    res.send(result);
+  })
+);
+
+app.get(
+  "/all-users",
+  verifyAdmin,
+  asyncRoute(async (req, res) => {
+    const { users } = await getCollections();
+    const result = await users.find().toArray();
+    res.send(result);
+  })
+);
+
+app.patch(
+  "/update-user-role",
+  verifyAdmin,
+  asyncRoute(async (req, res) => {
+    const { users } = await getCollections();
+    const email = req.query.email?.toLowerCase();
+    const newRole = req.body.role;
+
+    const result = await users.findOneAndUpdate(
+      { Email: email },
+      { $set: { Role: newRole } },
+      { returnDocument: "after" }
+    );
+
+    res.send({ success: true, result });
+  })
+);
+
+app.patch(
+  "/update-user-status",
+  verifyAdmin,
+  asyncRoute(async (req, res) => {
+    const { users } = await getCollections();
+    const email = req.query.email?.toLowerCase();
+    const newStatus = req.body.status;
+
+    const result = await users.findOneAndUpdate(
+      { Email: email },
+      { $set: { status: newStatus } },
+      { returnDocument: "after" }
+    );
+
+    res.send({ success: true, result });
+  })
+);
+
+app.get(
+  "/get-user/:email",
+  asyncRoute(async (req, res) => {
+    const { users } = await getCollections();
+    const email = req.params.email.toLowerCase();
+    const result = await users.findOne({ Email: email });
+    res.send(result);
+  })
+);
+
+app.put(
+  "/update-user-profile/:email",
+  verifyToken,
+  asyncRoute(async (req, res) => {
+    const { users } = await getCollections();
+    const email = req.params.email.toLowerCase();
+
+    const result = await users.updateOne(
+      { Email: email },
+      { $set: { ...req.body, Email: email } },
+      { upsert: true }
+    );
+
+    res.send(result);
+  })
+);
+
+app.post(
+  "/new-donation-request",
+  verifyToken,
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const result = await donations.insertOne(req.body);
+    res.send(result);
+  })
+);
+
+app.get(
+  "/my-donation-request/:email",
+  verifyToken,
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const email = req.params.email;
+    const result = await donations.find({ requesterEmail: email }).toArray();
+    res.send(result);
+  })
+);
+
+app.get(
+  "/my-recent-donation/:email",
+  verifyToken,
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const email = req.params.email;
+    const result = await donations
+      .find({ requesterEmail: email })
+      .sort({ donationDates: -1, donationTimes: 1 })
+      .limit(3)
+      .toArray();
+    res.send(result);
+  })
+);
+
+app.get(
+  "/all-blood-donation-request",
+  verifyAdminVolunteer,
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const result = await donations.find().toArray();
+    res.send(result);
+  })
+);
+
+app.put(
+  "/update-donation-request/:id",
+  verifyToken,
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const result = await donations.findOneAndUpdate(
+      { _id: toObjectId(req.params.id) },
+      { $set: { ...req.body } },
+      { returnDocument: "after" }
+    );
+
+    res.send({ success: true, result });
+  })
+);
+
+app.get(
+  "/get-request-data/:id",
+  verifyToken,
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const result = await donations.findOne({ _id: toObjectId(req.params.id) });
+    res.send(result);
+  })
+);
+
+app.patch(
+  "/update-donation-status/:id",
+  verifyAdminVolunteer,
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const result = await donations.findOneAndUpdate(
+      { _id: toObjectId(req.params.id) },
+      { $set: { donationStatus: req.query.status } },
+      { returnDocument: "after" }
+    );
+
+    res.send(result);
+  })
+);
+
+app.patch(
+  "/user-donation-status-update/:id",
+  verifyToken,
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const result = await donations.findOneAndUpdate(
+      { _id: toObjectId(req.params.id) },
+      { $set: { donationStatus: req.query.status } },
+      { returnDocument: "after" }
+    );
+
+    res.send(result);
+  })
+);
+
+app.get(
+  "/search-donors",
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const { bloodGroup, district, upazila } = req.query;
+    const query = {};
+
+    if (bloodGroup) query.bloodGroup = bloodGroup;
+    if (district) query.district = district;
+    if (upazila) query.upazila = upazila;
+
+    const result = await donations.find(query).toArray();
+    res.send(result);
+  })
+);
+
+app.get(
+  "/pending-donation-data",
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const result = await donations.find({ donationStatus: "pending" }).toArray();
+    res.send(result);
+  })
+);
+
+app.get(
+  "/view-details/:id",
+  verifyToken,
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const result = await donations.findOne({ _id: toObjectId(req.params.id) });
+    res.send(result);
+  })
+);
+
+app.patch(
+  "/confirm-donation/:id",
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const { donorName, donorEmail, donationStatus } = req.body;
+
+    const result = await donations.findOneAndUpdate(
+      { _id: toObjectId(req.params.id) },
+      { $set: { donorName, donorEmail, donationStatus } },
+      { upsert: true, returnDocument: "after" }
+    );
+
+    res.send(result);
+  })
+);
+
+app.delete(
+  "/delete-donation-request/:id",
+  verifyToken,
+  asyncRoute(async (req, res) => {
+    const { donations } = await getCollections();
+    const result = await donations.deleteOne({ _id: toObjectId(req.params.id) });
+    res.send(result);
+  })
+);
+
+app.post(
+  "/create-new-blog",
+  verifyAdminVolunteer,
+  asyncRoute(async (req, res) => {
+    const { blogs } = await getCollections();
+    const result = await blogs.insertOne(req.body);
+    res.send(result);
+  })
+);
+
+app.get(
+  "/all-blogs",
+  verifyAdminVolunteer,
+  asyncRoute(async (req, res) => {
+    const { blogs } = await getCollections();
+    const query = req.query.status ? { status: req.query.status } : {};
+    const result = await blogs.find(query).toArray();
+    res.send(result);
+  })
+);
+
+app.patch(
+  "/update-blog-status/:id",
+  verifyAdmin,
+  asyncRoute(async (req, res) => {
+    const { blogs } = await getCollections();
+    const result = await blogs.findOneAndUpdate(
+      { _id: toObjectId(req.params.id) },
+      { $set: { status: req.query.status } },
+      { returnDocument: "after" }
+    );
+
+    res.send(result);
+  })
+);
+
+app.delete(
+  "/delete-blog/:id",
+  verifyAdmin,
+  asyncRoute(async (req, res) => {
+    const { blogs } = await getCollections();
+    const result = await blogs.deleteOne({ _id: toObjectId(req.params.id) });
+    res.send(result);
+  })
+);
+
+app.get(
+  "/blogs",
+  asyncRoute(async (req, res) => {
+    const { blogs } = await getCollections();
+    const result = await blogs.find({ status: "published" }).toArray();
+    res.send(result);
+  })
+);
+
+app.get(
+  "/blog-details/:id",
+  asyncRoute(async (req, res) => {
+    const { blogs } = await getCollections();
+    const result = await blogs.findOne({ _id: toObjectId(req.params.id) });
+    res.send(result);
+  })
+);
+
+app.use((req, res) => {
+  res.status(404).send({ message: "Route not found" });
 });
 
 app.use((err, req, res, next) => {
+  const statusCode = err.statusCode || err.status || 500;
   console.error(err);
-  res.status(500).send({
-    message: "Server error",
+
+  res.status(statusCode).send({
+    message: statusCode === 500 ? "Server error" : err.message,
     error: err.message,
   });
 });
