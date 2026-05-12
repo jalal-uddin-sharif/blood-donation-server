@@ -126,7 +126,30 @@ const getCollections = async () => {
     users: db.collection("User"),
     blogs: db.collection("BlogsCollection"),
     donations: db.collection("createdDonation"),
+    contacts: db.collection("ContactMessages"),
   };
+};
+
+const escapeRegex = (value = "") => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const requireString = (body, field) => {
+  const value = body?.[field];
+  if (typeof value !== "string" || !value.trim()) {
+    const error = new Error(`${field} is required`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return value.trim();
+};
+
+const requireEmail = (body, field = "email") => {
+  const email = requireString(body, field).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    const error = new Error("Valid email is required");
+    error.statusCode = 400;
+    throw error;
+  }
+  return email;
 };
 
 const verifyToken = (req, res, next) => {
@@ -424,18 +447,106 @@ app.get(
   "/pending-donation-data",
   asyncRoute(async (req, res) => {
     const { donations } = await getCollections();
-    const result = await donations.find({ donationStatus: "pending" }).toArray();
-    res.send(result);
+    const {
+      bloodGroup,
+      district,
+      upazila,
+      search,
+      sort = "date-asc",
+      page = "1",
+      limit = "8",
+    } = req.query;
+    const query = { donationStatus: "pending" };
+
+    if (bloodGroup) query.bloodGroup = bloodGroup;
+    if (district) query.district = district;
+    if (upazila) query.upazila = upazila;
+    if (search) {
+      const regex = new RegExp(escapeRegex(search), "i");
+      query.$or = [
+        { recipientName: regex },
+        { hospital: regex },
+        { district: regex },
+        { upazila: regex },
+        { bloodGroup: regex },
+      ];
+    }
+
+    const sortMap = {
+      "date-asc": { donationDates: 1, donationTimes: 1 },
+      "date-desc": { donationDates: -1, donationTimes: -1 },
+      "group-asc": { bloodGroup: 1, donationDates: 1 },
+      "location-asc": { district: 1, upazila: 1 },
+    };
+    const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
+    const pageSize = Math.min(Math.max(parseInt(limit, 10) || 8, 1), 40);
+    const total = await donations.countDocuments(query);
+    const items = await donations
+      .find(query)
+      .sort(sortMap[sort] || sortMap["date-asc"])
+      .skip((pageNumber - 1) * pageSize)
+      .limit(pageSize)
+      .toArray();
+
+    res.send({
+      items,
+      total,
+      page: pageNumber,
+      limit: pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    });
   })
 );
 
 app.get(
   "/view-details/:id",
-  verifyToken,
   asyncRoute(async (req, res) => {
     const { donations } = await getCollections();
     const result = await donations.findOne({ _id: toObjectId(req.params.id) });
     res.send(result);
+  })
+);
+
+app.get(
+  "/dashboard-stats",
+  verifyAdminVolunteer,
+  asyncRoute(async (req, res) => {
+    const { donations, users } = await getCollections();
+    const [totalUsers, totalRequests, usersByRole, requestsByStatus, requestsByBloodGroup] =
+      await Promise.all([
+        users.countDocuments(),
+        donations.countDocuments(),
+        users.aggregate([{ $group: { _id: "$Role", count: { $sum: 1 } } }]).toArray(),
+        donations.aggregate([{ $group: { _id: "$donationStatus", count: { $sum: 1 } } }]).toArray(),
+        donations.aggregate([{ $group: { _id: "$bloodGroup", count: { $sum: 1 } } }]).toArray(),
+      ]);
+
+    res.send({
+      totalUsers,
+      totalRequests,
+      totalFunding: 0,
+      usersByRole,
+      requestsByStatus,
+      requestsByBloodGroup,
+    });
+  })
+);
+
+app.post(
+  "/contact-messages",
+  asyncRoute(async (req, res) => {
+    const { contacts } = await getCollections();
+    const message = {
+      name: requireString(req.body, "name"),
+      email: requireEmail(req.body),
+      subject: requireString(req.body, "subject"),
+      message: requireString(req.body, "message"),
+      status: "new",
+      createdAt: new Date(),
+    };
+
+    const result = await contacts.insertOne(message);
+    res.status(201).send({ success: true, insertedId: result.insertedId });
   })
 );
 
