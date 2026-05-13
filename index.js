@@ -34,7 +34,9 @@ const buildLegacyMongoUri = () => {
   return `mongodb://${encodedUsername}:${encodedPassword}@ac-mxcrq0r-shard-00-00.zukg64l.mongodb.net:27017,ac-mxcrq0r-shard-00-01.zukg64l.mongodb.net:27017,ac-mxcrq0r-shard-00-02.zukg64l.mongodb.net:27017/?ssl=true&replicaSet=atlas-zsmeja-shard-0&authSource=admin&retryWrites=true&w=majority&appName=Cluster0`;
 };
 
-const mongoUri = process.env.MONGODB_URI || buildLegacyMongoUri();
+const legacyMongoUri = buildLegacyMongoUri();
+const mongoUri = legacyMongoUri || process.env.MONGODB_URI;
+const mongoUriSource = legacyMongoUri ? "DATABASE_ACCESS_USERNAME/PASSWORD" : "MONGODB_URI";
 
 const corsOptions = {
   origin(origin, callback) {
@@ -210,6 +212,7 @@ app.get(
       hasMongoUserPassword: Boolean(
         process.env.DATABASE_ACCESS_USERNAME && process.env.DATABASE_ACCESS_PASSWORD
       ),
+      mongoUriSource,
       allowedOrigins,
     };
 
